@@ -14,6 +14,8 @@
     "@emotion/react": "^11.11.0",
     "@emotion/styled": "^11.11.0",
     "hours-tracker": "file:",
+    "idb": "^8.0.2",
+    "js-cookie": "^3.0.5",
     "next": "15.1.7",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
