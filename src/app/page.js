@@ -20,7 +20,7 @@ import {
 } from "@chakra-ui/react";
 import { ChevronLeftIcon, ChevronRightIcon } from "@chakra-ui/icons";
 
-// Initialize IndexedDB with separate data per user
+// ✅ Initialize IndexedDB with user-specific data
 const dbPromise = openDB("workHoursDB", 2, {
   upgrade(db, oldVersion) {
     if (oldVersion < 1) {
@@ -32,14 +32,14 @@ const dbPromise = openDB("workHoursDB", 2, {
   },
 });
 
-// Fetch hours from IndexedDB
+// ✅ Fetch work hours from IndexedDB
 async function getHours(username, year, month) {
   const db = await dbPromise;
   const user = await db.get("users", username);
   return user?.hours?.[`${year}-${month}`] || {};
 }
 
-// Save hours to IndexedDB for the selected month
+// ✅ Save work hours to IndexedDB
 async function saveHours(username, year, month, hours) {
   const db = await dbPromise;
   const user = (await db.get("users", username)) || { username, hours: {} };
@@ -47,7 +47,7 @@ async function saveHours(username, year, month, hours) {
   await db.put("users", user);
 }
 
-// Generate the calendar structure
+// ✅ Generate Calendar Structure
 function generateCalendar(year, month) {
   const firstDay = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
@@ -76,17 +76,23 @@ export default function WorkHoursTracker() {
   const [hours, setHours] = useState({});
   const weeks = generateCalendar(year, month);
 
-  // Load stored username and work hours for the selected month
+  // ✅ Load stored username once
   useEffect(() => {
     const storedUsername = localStorage.getItem("username");
     if (storedUsername) {
       setUsername(storedUsername);
       setIsLoggedIn(true);
-      getHours(storedUsername, year, month).then(setHours);
     }
-  }, [year, month]);
+  }, []);
 
-  // Handle user login
+  // ✅ Fetch hours when username, year, or month changes
+  useEffect(() => {
+    if (username) {
+      getHours(username, year, month).then(setHours);
+    }
+  }, [username, year, month]);
+
+  // ✅ Handle User Login
   const handleLogin = async () => {
     if (!username.trim()) return;
     setIsLoggedIn(true);
@@ -95,7 +101,7 @@ export default function WorkHoursTracker() {
     setHours(userHours);
   };
 
-  // Handle user logout
+  // ✅ Handle User Logout
   const handleLogout = () => {
     setIsLoggedIn(false);
     setUsername("");
@@ -103,7 +109,7 @@ export default function WorkHoursTracker() {
     localStorage.removeItem("username");
   };
 
-  // Handle input changes and update IndexedDB
+  // ✅ Handle Input Changes and Save to IndexedDB
   const handleInputChange = async (day, index, event) => {
     if (index === 0 || index === 6) return; // Skip weekends
     const newHours = { ...hours, [`${year}-${month}-${day}`]: event.target.value };
@@ -111,7 +117,7 @@ export default function WorkHoursTracker() {
     await saveHours(username, year, month, newHours);
   };
 
-  // Calculate total weekly hours (excluding weekends)
+  // ✅ Calculate Weekly Hours (excluding weekends)
   const getWeeklyHours = () => {
     return weeks.map((week) =>
       week.reduce((total, day, index) =>
@@ -119,7 +125,7 @@ export default function WorkHoursTracker() {
     );
   };
 
-  // Calculate total monthly hours (excluding weekends)
+  // ✅ Calculate Monthly Total Hours (excluding weekends)
   const getTotalHours = () =>
     Object.entries(hours)
       .filter(([key]) => {
@@ -129,7 +135,7 @@ export default function WorkHoursTracker() {
       .map(([_, h]) => Number(h))
       .reduce((acc, h) => acc + h, 0);
 
-  // Change month
+  // ✅ Change Month
   const changeMonth = (offset) => {
     setMonth((prev) => {
       let newMonth = prev + offset;
@@ -199,7 +205,7 @@ export default function WorkHoursTracker() {
                           )}
                         </Td>
                       ))}
-                      <Td fontWeight="bold" bg="gray.100">{weeklyHours[i]} hrs</Td>
+                      <Td fontWeight="bold" bg="gray.100">{weeklyHours[i]} hours</Td>
                     </Tr>
                   ))}
                 </Tbody>
