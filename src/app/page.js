@@ -1,184 +1,215 @@
 "use client";
 import { useState, useEffect } from "react";
+import { openDB } from "idb";
 import {
   Box,
   Heading,
   VStack,
-  HStack,
   Input,
-  Button,
   Table,
   Thead,
   Tbody,
   Tr,
   Th,
   Td,
-  IconButton,
-  useToast,
   Flex,
   Text,
   Container,
+  IconButton,
+  Button,
 } from "@chakra-ui/react";
-import { DeleteIcon } from "@chakra-ui/icons";
+import { ChevronLeftIcon, ChevronRightIcon } from "@chakra-ui/icons";
 
-export default function Home() {
-  const [entries, setEntries] = useState([]);
-  const [employeeName, setEmployeeName] = useState("");
-  const [date, setDate] = useState("");
-  const [hours, setHours] = useState("");
-  const [task, setTask] = useState("");
-  const toast = useToast();
+// Initialize IndexedDB with separate data per user
+const dbPromise = openDB("workHoursDB", 2, {
+  upgrade(db, oldVersion) {
+    if (oldVersion < 1) {
+      db.createObjectStore("entries", { keyPath: "id" });
+    }
+    if (oldVersion < 2) {
+      db.createObjectStore("users", { keyPath: "username" });
+    }
+  },
+});
 
+// Fetch hours from IndexedDB
+async function getHours(username, year, month) {
+  const db = await dbPromise;
+  const user = await db.get("users", username);
+  return user?.hours?.[`${year}-${month}`] || {};
+}
+
+// Save hours to IndexedDB for the selected month
+async function saveHours(username, year, month, hours) {
+  const db = await dbPromise;
+  const user = (await db.get("users", username)) || { username, hours: {} };
+  user.hours[`${year}-${month}`] = hours;
+  await db.put("users", user);
+}
+
+// Generate the calendar structure
+function generateCalendar(year, month) {
+  const firstDay = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const weeks = [];
+  let week = new Array(firstDay).fill(null);
+
+  for (let day = 1; day <= daysInMonth; day++) {
+    week.push(day);
+    if (week.length === 7) {
+      weeks.push(week);
+      week = [];
+    }
+  }
+  if (week.length > 0) {
+    while (week.length < 7) week.push(null);
+    weeks.push(week);
+  }
+  return weeks;
+}
+
+export default function WorkHoursTracker() {
+  const [username, setUsername] = useState("");
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [year, setYear] = useState(new Date().getFullYear());
+  const [month, setMonth] = useState(new Date().getMonth());
+  const [hours, setHours] = useState({});
+  const weeks = generateCalendar(year, month);
+
+  // Load stored username and work hours for the selected month
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      const savedEntries = JSON.parse(localStorage.getItem("hoursTracking")) || [];
-      setEntries(savedEntries);
+    const storedUsername = localStorage.getItem("username");
+    if (storedUsername) {
+      setUsername(storedUsername);
+      setIsLoggedIn(true);
+      getHours(storedUsername, year, month).then(setHours);
     }
-  }, []);
+  }, [year, month]);
 
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      localStorage.setItem("hoursTracking", JSON.stringify(entries));
-    }
-  }, [entries]);
+  // Handle user login
+  const handleLogin = async () => {
+    if (!username.trim()) return;
+    setIsLoggedIn(true);
+    localStorage.setItem("username", username);
+    const userHours = await getHours(username, year, month);
+    setHours(userHours);
+  };
 
-  const handleAddEntry = () => {
-    if (!employeeName || !date || !hours || !task) {
-      toast({
-        title: "All fields are required.",
-        status: "warning",
-        duration: 2000,
-        isClosable: true,
-      });
-      return;
-    }
-    const newEntry = { employeeName, date, hours, task };
-    setEntries([...entries, newEntry]);
-    setEmployeeName("");
-    setDate("");
-    setHours("");
-    setTask("");
-    toast({
-      title: "Entry added successfully.",
-      status: "success",
-      duration: 2000,
-      isClosable: true,
+  // Handle user logout
+  const handleLogout = () => {
+    setIsLoggedIn(false);
+    setUsername("");
+    setHours({});
+    localStorage.removeItem("username");
+  };
+
+  // Handle input changes and update IndexedDB
+  const handleInputChange = async (day, index, event) => {
+    if (index === 0 || index === 6) return; // Skip weekends
+    const newHours = { ...hours, [`${year}-${month}-${day}`]: event.target.value };
+    setHours(newHours);
+    await saveHours(username, year, month, newHours);
+  };
+
+  // Calculate total weekly hours (excluding weekends)
+  const getWeeklyHours = () => {
+    return weeks.map((week) =>
+      week.reduce((total, day, index) =>
+        index === 0 || index === 6 ? total : total + (day ? Number(hours[`${year}-${month}-${day}`] || 0) : 0), 0)
+    );
+  };
+
+  // Calculate total monthly hours (excluding weekends)
+  const getTotalHours = () =>
+    Object.entries(hours)
+      .filter(([key]) => {
+        const date = new Date(year, month, key.split("-")[2]);
+        return date.getDay() !== 0 && date.getDay() !== 6;
+      })
+      .map(([_, h]) => Number(h))
+      .reduce((acc, h) => acc + h, 0);
+
+  // Change month
+  const changeMonth = (offset) => {
+    setMonth((prev) => {
+      let newMonth = prev + offset;
+      let newYear = year;
+      if (newMonth < 0) {
+        newYear -= 1;
+        newMonth = 11;
+      } else if (newMonth > 11) {
+        newYear += 1;
+        newMonth = 0;
+      }
+      setYear(newYear);
+      return newMonth;
     });
   };
 
-  const handleClearEntries = () => {
-    setEntries([]);
-    toast({
-      title: "All entries cleared.",
-      status: "info",
-      duration: 2000,
-      isClosable: true,
-    });
-  };
-
-  const handleDeleteEntry = (indexToDelete) => {
-    const updatedEntries = entries.filter((_, index) => index !== indexToDelete);
-    setEntries(updatedEntries);
-    toast({
-      title: "Entry deleted.",
-      status: "error",
-      duration: 2000,
-      isClosable: true,
-    });
-  };
+  const weeklyHours = getWeeklyHours();
 
   return (
-    <Flex justify="center" align="center" minH="100vh" bgGradient="linear(to-br, blue.100, gray.50)">
-      <Container maxW="900px" py="8">
-        <Box
-          p="8"
-          bg="white"
-          rounded="xl"
-          shadow="2xl"
-          border="1px solid"
-          borderColor="gray.200"
-        >
-          <Heading textAlign="center" mb="6" color="blue.600">
-            Work Hours Tracker
-          </Heading>
-          <VStack spacing="4" mb="8">
-            <Input
-              type="text"
-              value={employeeName}
-              onChange={(e) => setEmployeeName(e.target.value)}
-              placeholder="Employee Name"
-              size="lg"
-              focusBorderColor="blue.500"
-            />
-            <Input
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              placeholder="Date"
-              size="lg"
-              focusBorderColor="blue.500"
-            />
-            <Input
-              type="number"
-              value={hours}
-              onChange={(e) => setHours(e.target.value)}
-              placeholder="Hours worked"
-              size="lg"
-              focusBorderColor="blue.500"
-            />
-            <Input
-              type="text"
-              value={task}
-              onChange={(e) => setTask(e.target.value)}
-              placeholder="Task description"
-              size="lg"
-              focusBorderColor="blue.500"
-            />
-            <HStack spacing="4" mt="4">
-              <Button colorScheme="green" size="lg" onClick={handleAddEntry} shadow="md" _hover={{ shadow: "xl" }}>
-                Add Entry
-              </Button>
-              <Button colorScheme="red" size="lg" onClick={handleClearEntries} shadow="md" _hover={{ shadow: "xl" }}>
-                Clear All Entries
-              </Button>
-            </HStack>
-          </VStack>
-
-          {entries.length > 0 ? (
-            <Table variant="striped" colorScheme="blue">
-              <Thead>
-                <Tr bg="blue.600">
-                  <Th color="white">Employee Name</Th>
-                  <Th color="white">Date</Th>
-                  <Th color="white">Hours</Th>
-                  <Th color="white">Task</Th>
-                  <Th color="white">Actions</Th>
-                </Tr>
-              </Thead>
-              <Tbody>
-                {entries.map((entry, index) => (
-                  <Tr key={index} _hover={{ bg: "gray.100" }}>
-                    <Td fontWeight="medium">{entry.employeeName}</Td>
-                    <Td fontWeight="medium">{entry.date}</Td>
-                    <Td fontWeight="medium">{entry.hours}</Td>
-                    <Td>{entry.task}</Td>
-                    <Td>
-                      <IconButton
-                        icon={<DeleteIcon />}
-                        colorScheme="red"
-                        size="sm"
-                        onClick={() => handleDeleteEntry(index)}
-                        aria-label="Delete Entry"
-                      />
-                    </Td>
-                  </Tr>
-                ))}
-              </Tbody>
-            </Table>
+    <Flex justify="center" align="center" minH="100vh" bg="gray.50">
+      <Container maxW="800px" py="8">
+        <Box p="6" bg="white" rounded="md" shadow="md" border="1px solid" borderColor="gray.300">
+          {!isLoggedIn ? (
+            <VStack spacing="4" mb="6">
+              <Heading textAlign="center" fontSize="xl">Enter Your Name</Heading>
+              <Input type="text" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Your Name" size="lg" focusBorderColor="blue.500" />
+              <Button colorScheme="blue" size="lg" onClick={handleLogin}>Start Tracking</Button>
+            </VStack>
           ) : (
-            <Text mt="4" color="gray.500" textAlign="center">
-              No entries found. Start tracking your hours now!
-            </Text>
+            <>
+              <Flex justify="space-between" align="center" mb="4">
+                <Heading fontSize="lg">Hello, {username}</Heading>
+                <Button colorScheme="red" size="sm" onClick={handleLogout}>Logout</Button>
+              </Flex>
+
+              <Flex justify="space-between" align="center" mb="4">
+                <IconButton icon={<ChevronLeftIcon />} onClick={() => changeMonth(-1)} size="md" />
+                <Heading textAlign="center" fontSize="lg">
+                  {new Date(year, month).toLocaleString("default", { month: "long" })} {year}
+                </Heading>
+                <IconButton icon={<ChevronRightIcon />} onClick={() => changeMonth(1)} size="md" />
+              </Flex>
+
+              {/* Calendar */}
+              <Table variant="simple" colorScheme="gray">
+                <Thead bg="gray.100">
+                  <Tr>
+                    <Th>Sun</Th>
+                    <Th>Mon</Th>
+                    <Th>Tue</Th>
+                    <Th>Wed</Th>
+                    <Th>Thu</Th>
+                    <Th>Fri</Th>
+                    <Th>Sat</Th>
+                  </Tr>
+                </Thead>
+                <Tbody>
+                  {weeks.map((week, i) => (
+                    <Tr key={i}>
+                      {week.map((day, index) => (
+                        <Td key={index} textAlign="center" bg={index === 0 || index === 6 ? "gray.200" : "white"}>
+                          {day && (
+                            <>
+                              <Text fontSize="sm" fontWeight="bold">{day}</Text>
+                              <Input type="number" disabled={index === 0 || index === 6} value={hours[`${year}-${month}-${day}`] || ""} onChange={(e) => handleInputChange(day, index, e)} size="sm" textAlign="center" />
+                            </>
+                          )}
+                        </Td>
+                      ))}
+                      <Td fontWeight="bold" bg="gray.100">{weeklyHours[i]} hrs</Td>
+                    </Tr>
+                  ))}
+                </Tbody>
+              </Table>
+
+              {/* Monthly Total Hours */}
+              <Box mt="4" p="2" bg="gray.100" textAlign="center" fontWeight="bold">
+                Total Monthly Hours: {getTotalHours()} hours
+              </Box>
+            </>
           )}
         </Box>
       </Container>
